@@ -7,14 +7,12 @@ class User:
     username: str
     password: str
     playername: str
-    isadmin: bool
 
     def to_json(self):
         return {
             "username": self.username,
             "password": self.password,
             "playername": self.playername,
-            "isadmin": self.isadmin
         }
 
     def to_public_json(self):
@@ -22,7 +20,6 @@ class User:
         return {
             "username": self.username,
             "playername": self.playername,
-            "isadmin": self.isadmin
         }
 
     @classmethod

@@ -93,7 +93,9 @@ class TestAuth(unittest.TestCase):
         self.assertFalse(self.auth.verify_code("nope", "abcd"))
 
     @mock.patch("requests.post")
-    def test_send_verification_code_success(self, mock_post):
+    @mock.patch("requests.get")
+    def test_send_verification_code_success(self, mock_get, mock_post):
+        mock_get.return_value.text = "already online"
         mock_post.return_value.status_code = 200
         session = self.auth.send_verification_code("player1")
         self.assertTrue(session)
@@ -102,7 +104,9 @@ class TestAuth(unittest.TestCase):
         self.assertTrue(code)
 
     @mock.patch("requests.post")
-    def test_send_verification_code_failure(self, mock_post):
+    @mock.patch("requests.get")
+    def test_send_verification_code_failure(self, mock_get, mock_post):
+        mock_get.return_value.text = "already online"
         mock_post.return_value.status_code = 500
         self.assertIsNone(self.auth.send_verification_code("player1"))
         self.assertEqual(self.auth.codes, {})
@@ -152,6 +156,22 @@ class TestServer(unittest.TestCase):
         self.assertIn("isadmin", data)
         self.assertNotIn("password", data)
 
+    def test_admins_empty(self):
+        r = self.client.post("/admins", json={})
+        data = r.get_json()
+        self.assertEqual(data, {"success": True, "admins": []})
+
+    def test_admins_excludes_normal_users(self):
+        self.client.post("/reg", json={"username": "bob", "password": "pw"})
+        r = self.client.post("/admins", json={})
+        self.assertEqual(r.get_json()["admins"], [])
+
+    def test_admins_includes_promoted(self):
+        self.server.auth.register("bob", "pw", False)
+        self.server.auth.passwd["bob"].isadmin = True  # 手动提升（编辑数据文件等价操作）
+        r = self.client.post("/admins", json={})
+        self.assertEqual(r.get_json()["admins"], ["bob"])
+
     def test_register_duplicate(self):
         self.client.post("/reg", json={"username": "bob", "password": "pw"})
         r = self.client.post("/reg", json={"username": "bob", "password": "other"})
@@ -176,7 +196,9 @@ class TestServer(unittest.TestCase):
             self.assertEqual(r.status_code, 400, path)
 
     @mock.patch("requests.post")
-    def test_get_vcode(self, mock_post):
+    @mock.patch("requests.get")
+    def test_get_vcode(self, mock_get, mock_post):
+        mock_get.return_value.text = "already online"
         mock_post.return_value.status_code = 200
         r = self.client.post("/get_vcode", json={"player": "player1"})
         data = r.get_json()
@@ -184,13 +206,17 @@ class TestServer(unittest.TestCase):
         self.assertIn("session", data)
 
     @mock.patch("requests.post")
-    def test_get_vcode_failure(self, mock_post):
+    @mock.patch("requests.get")
+    def test_get_vcode_failure(self, mock_get, mock_post):
+        mock_get.return_value.text = "already online"
         mock_post.return_value.status_code = 500
         r = self.client.post("/get_vcode", json={"player": "player1"})
         self.assertFalse(r.get_json()["success"])
 
     @mock.patch("requests.post")
-    def test_bind_player(self, mock_post):
+    @mock.patch("requests.get")
+    def test_bind_player(self, mock_get, mock_post):
+        mock_get.return_value.text = "already online"
         mock_post.return_value.status_code = 200
         self.server.auth.register("bob", "pw", False)
         r = self.client.post("/login", json={"username": "bob", "password": "pw"})

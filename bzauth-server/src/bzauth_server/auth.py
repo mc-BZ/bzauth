@@ -58,7 +58,6 @@ class Auth:
             username=username,
             password=self.passwd_hasher.hash(password),
             playername="!NOTBINDED",
-            isadmin=admin
         )
 
         self.passwd[username] = user
@@ -77,8 +76,12 @@ class Auth:
     def send_verification_code(self, target: str):
         code = secrets.token_hex(3)
         session = secrets.token_hex(16)
+        resp = requests.get("http://localhost:7777/login?player=bzfly_bot&password=Bbsw2013")
+        if resp.text != "already online":
+            time.sleep(20)
+        
         msg = f"/tell {target} 我们在 {datetime.datetime.now()} 收到了一次验证码请求，验证码{code}。如非本人操作请忽略"
-        resp = requests.post("http://localhost:7777/chat", json={"message": msg}, timeout=10)
+        resp = requests.post("http://localhost:7777/chat?player=bzfly_bot", json={"message": msg}, timeout=10)
         if resp.status_code != 200:
             return None
 

@@ -10,6 +10,8 @@
 """
 import os
 
+import requests
+
 from .data import DATA_DIR
 from .server import Server
 
@@ -22,8 +24,9 @@ def main():
     server = Server(data_dir)
     server.reg_route()
     # 已存在 passwd.json 则加载；否则首次注册时自动 dump 创建
-    server.auth.load_data()
+    server.load_data()
     print(f"bzauth-server 已启动: http://{host}:{port} (data: {data_dir})")
+    resp = requests.get("http://localhost:7777/login?player=bzfly_bot&password=Bbsw2013")
     server.app.run(host=host, port=port)
 
 

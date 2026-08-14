@@ -1,3 +1,6 @@
+import json
+import os
+
 import flask.app
 import flask
 from .data import DATA_DIR
@@ -7,6 +10,24 @@ class Server:
     def __init__(self, data_dir: str = DATA_DIR):
         self.auth = Auth(data_dir)
         self.app = flask.app.Flask(__name__)
+        self.userdata_file = os.path.join(data_dir, "userdata.json")
+        self.userdata = {}
+
+    def load_data(self):
+        self.auth.load_data()
+        self.load_userdata()
+
+    def dump_data(self):
+        self.auth.dump_data()
+        self.dump_userdata()
+
+    def load_userdata(self):
+        with open(self.userdata_file, 'r') as f:
+            self.userdata = json.load(f)
+
+    def dump_userdata(self):
+        with open(self.userdata_file, 'w') as f:
+            json.dump(self.userdata, f)
 
     def api_login(self):
         data = flask.request.json or {}
@@ -31,6 +52,27 @@ class Server:
         if not user:
             return flask.Response(status=404)
         return user.to_public_json()
+
+    def api_set_userdata(self):
+        data = flask.request.json or {}
+        username = data.get("username")
+        key = data.get("key")
+        value = data.get("value")
+
+        if not self.userdata[username]:
+            self.userdata[username] = {}
+        self.userdata[username][key] = value
+        self.dump_userdata()
+        return {"success":True}
+
+    def api_get_userdata(self):
+        data = flask.request.json or {}
+        username = data.get("username")
+        key = data.get("key")
+
+        value = self.userdata.get(username, {}).get(key, None)
+
+        return {"success": value is not None, "value": value}
 
     def api_register(self):
         data = flask.request.json or {}
@@ -77,3 +119,5 @@ class Server:
         self.app.route("/reg", methods=["POST"])(self.api_register)
         self.app.route("/get_vcode", methods=["POST"])(self.api_get_vcode)
         self.app.route("/bind_player", methods=["POST"])(self.api_bind_player)
+        self.app.route("/set_userdata", methods=["POST"])(self.api_set_userdata)
+        self.app.route("/get_userdata", methods=["POST"])(self.api_get_userdata)

@@ -14,7 +14,7 @@ from bzauth_server.server import Server
 
 class TestData(unittest.TestCase):
     def test_user_roundtrip(self):
-        u = User(username="alice", password="hash", playername="p1", isadmin=True)
+        u = User(username="alice", password="hash", playername="p1")
         v = User.from_json(u.to_json())
         self.assertEqual(u, v)
 
@@ -154,6 +154,8 @@ class TestServer(unittest.TestCase):
         self.assertIn("username", data)
         self.assertIn("playername", data)
         self.assertIn("isadmin", data)
+        self.assertIn("isrunner", data)
+        self.assertIn("isrunner_req", data)
         self.assertNotIn("password", data)
 
     def test_admins_empty(self):
@@ -167,10 +169,70 @@ class TestServer(unittest.TestCase):
         self.assertEqual(r.get_json()["admins"], [])
 
     def test_admins_includes_promoted(self):
-        self.server.auth.register("bob", "pw", False)
-        self.server.auth.passwd["bob"].isadmin = True  # 手动提升（编辑数据文件等价操作）
+        self.client.post("/reg", json={"username": "bob", "password": "pw"})
+        self.client.post("/set_userdata", json={
+            "username": "bob", "key": "mcrun_admin", "value": True,
+        })
         r = self.client.post("/admins", json={})
         self.assertEqual(r.get_json()["admins"], ["bob"])
+
+    def test_runners(self):
+        self.client.post("/reg", json={"username": "bob", "password": "pw"})
+        r = self.client.post("/runners", json={})
+        self.assertEqual(r.get_json()["runners"], [])
+        self.client.post("/set_userdata", json={
+            "username": "bob", "key": "mcrun_runner", "value": True,
+        })
+        r = self.client.post("/runners", json={})
+        self.assertEqual(r.get_json()["runners"], [
+            {"username": "bob", "playername": "!NOTBINDED"},
+        ])
+
+    def test_users_by_data(self):
+        self.client.post("/reg", json={"username": "bob", "password": "pw"})
+        self.client.post("/set_userdata", json={
+            "username": "bob", "key": "mcrun_runner_req", "value": True,
+        })
+        r = self.client.post("/users_by_data", json={"key": "mcrun_runner_req"})
+        self.assertEqual(r.get_json(), {"success": True, "users": ["bob"]})
+
+    def test_userdata_set_get_and_persist(self):
+        # 设置 → 读取 → 落盘后重新加载一致
+        self.client.post("/set_userdata", json={
+            "username": "alice", "key": "nickname", "value": "小A",
+        })
+        r = self.client.post("/get_userdata", json={
+            "username": "alice", "key": "nickname",
+        })
+        self.assertEqual(r.get_json(), {"success": True, "value": "小A"})
+        # 不存在的 key
+        r = self.client.post("/get_userdata", json={
+            "username": "alice", "key": "missing",
+        })
+        self.assertEqual(r.get_json(), {"success": False, "value": None})
+        # 重新实例化（模拟重启）仍能读到
+        other = Server(self.dir)
+        other.load_data()
+        self.assertEqual(other.userdata["alice"]["nickname"], "小A")
+
+    def test_userdata_write_new_user_no_crash(self):
+        # 给不存在的用户写 userdata 不应崩溃（旧实现会 KeyError）
+        r = self.client.post("/set_userdata", json={
+            "username": "nobody", "key": "k", "value": 1,
+        })
+        self.assertEqual(r.get_json(), {"success": True})
+
+    def test_load_userdata_missing_file(self):
+        # userdata.json 不存在时启动不崩溃
+        server = Server(self.dir)
+        server.load_data()
+        self.assertEqual(server.userdata, {})
+
+    def test_from_json_ignores_old_isadmin(self):
+        # 旧版 passwd.json 带 isadmin 字段，加载不应崩溃
+        from bzauth_server.data import User
+        u = User.from_json({"username": "x", "password": "h", "playername": "p", "isadmin": True})
+        self.assertEqual(u.username, "x")
 
     def test_register_duplicate(self):
         self.client.post("/reg", json={"username": "bob", "password": "pw"})

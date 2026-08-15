@@ -24,7 +24,12 @@ class User:
 
     @classmethod
     def from_json(cls, data: dict):
-        return cls(**data)
+        # 只取当前字段，忽略历史遗留字段（如旧版 isadmin），避免 TypeError
+        return cls(
+            username=data.get("username", ""),
+            password=data.get("password", ""),
+            playername=data.get("playername", "!NOTBINDED"),
+        )
 
 def atomic_write(file_path, data):
     temp_file = file_path + ".tmp"

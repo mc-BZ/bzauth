@@ -3,8 +3,9 @@ import os
 
 import flask.app
 import flask
-from .data import DATA_DIR
+from .data import DATA_DIR, atomic_write
 from .auth import Auth
+
 
 class Server:
     def __init__(self, data_dir: str = DATA_DIR):
@@ -22,12 +23,20 @@ class Server:
         self.dump_userdata()
 
     def load_userdata(self):
-        with open(self.userdata_file, 'r') as f:
+        if not os.path.exists(self.userdata_file):
+            self.userdata = {}
+            return
+        with open(self.userdata_file, "r", encoding="utf-8") as f:
             self.userdata = json.load(f)
 
     def dump_userdata(self):
-        with open(self.userdata_file, 'w') as f:
-            json.dump(self.userdata, f)
+        os.makedirs(os.path.dirname(self.userdata_file), exist_ok=True)
+        atomic_write(
+            self.userdata_file,
+            json.dumps(self.userdata, ensure_ascii=False, indent=2),
+        )
+
+    # ---- 接口 ----
 
     def api_login(self):
         data = flask.request.json or {}
@@ -51,7 +60,19 @@ class Server:
         user = self.auth.whoami(token)
         if not user:
             return flask.Response(status=404)
-        return user.to_public_json()
+        out = user.to_public_json()
+        return out
+
+    def api_filter(self):
+        data = flask.request.json or {}
+        filter_key = data.get("filter_key")
+        if not filter_key:
+            return flask.Response("Bad request", status=400)
+        out = []
+        for user in self.auth.passwd.values():
+            if self.userdata.get(user.username, {}).get(filter_key):
+                out.append(user.username)
+        return out
 
     def api_set_userdata(self):
         data = flask.request.json or {}
@@ -59,17 +80,19 @@ class Server:
         key = data.get("key")
         value = data.get("value")
 
-        if not self.userdata[username]:
-            self.userdata[username] = {}
-        self.userdata[username][key] = value
+        if not username or not key:
+            return flask.Response("Bad request", status=400)
+        self.userdata.setdefault(username, {})[key] = value
         self.dump_userdata()
-        return {"success":True}
+        return {"success": True}
 
     def api_get_userdata(self):
         data = flask.request.json or {}
         username = data.get("username")
         key = data.get("key")
 
+        if not username or not key:
+            return flask.Response("Bad request", status=400)
         value = self.userdata.get(username, {}).get(key, None)
 
         return {"success": value is not None, "value": value}
@@ -121,3 +144,4 @@ class Server:
         self.app.route("/bind_player", methods=["POST"])(self.api_bind_player)
         self.app.route("/set_userdata", methods=["POST"])(self.api_set_userdata)
         self.app.route("/get_userdata", methods=["POST"])(self.api_get_userdata)
+        self.app.route("/filter", methods=["POST"])(self.api_filter)

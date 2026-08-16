@@ -151,50 +151,41 @@ class TestServer(unittest.TestCase):
         _, token = self.server.auth.auth("bob", "pw")
         r = self.client.post("/whoami", json={"token": token})
         data = r.get_json()
-        self.assertIn("username", data)
-        self.assertIn("playername", data)
-        self.assertIn("isadmin", data)
-        self.assertIn("isrunner", data)
-        self.assertIn("isrunner_req", data)
+        # whoami 只含公开字段（username/playername），不含密码哈希
+        self.assertEqual(set(data), {"username", "playername"})
         self.assertNotIn("password", data)
 
-    def test_admins_empty(self):
-        r = self.client.post("/admins", json={})
-        data = r.get_json()
-        self.assertEqual(data, {"success": True, "admins": []})
-
-    def test_admins_excludes_normal_users(self):
+    def test_filter_by_userdata(self):
         self.client.post("/reg", json={"username": "bob", "password": "pw"})
-        r = self.client.post("/admins", json={})
-        self.assertEqual(r.get_json()["admins"], [])
-
-    def test_admins_includes_promoted(self):
-        self.client.post("/reg", json={"username": "bob", "password": "pw"})
-        self.client.post("/set_userdata", json={
-            "username": "bob", "key": "mcrun_admin", "value": True,
-        })
-        r = self.client.post("/admins", json={})
-        self.assertEqual(r.get_json()["admins"], ["bob"])
-
-    def test_runners(self):
-        self.client.post("/reg", json={"username": "bob", "password": "pw"})
-        r = self.client.post("/runners", json={})
-        self.assertEqual(r.get_json()["runners"], [])
+        r = self.client.post("/filter", json={"filter_key": "mcrun_runner"})
+        self.assertEqual(r.get_json(), [])
         self.client.post("/set_userdata", json={
             "username": "bob", "key": "mcrun_runner", "value": True,
         })
-        r = self.client.post("/runners", json={})
-        self.assertEqual(r.get_json()["runners"], [
-            {"username": "bob", "playername": "!NOTBINDED"},
-        ])
-
-    def test_users_by_data(self):
-        self.client.post("/reg", json={"username": "bob", "password": "pw"})
+        r = self.client.post("/filter", json={"filter_key": "mcrun_runner"})
+        self.assertEqual(r.get_json(), ["bob"])
+        # 只筛指定 key；falsy 值不命中（如拒绝申请后置 false）
         self.client.post("/set_userdata", json={
-            "username": "bob", "key": "mcrun_runner_req", "value": True,
+            "username": "bob", "key": "mcrun_runner", "value": False,
         })
-        r = self.client.post("/users_by_data", json={"key": "mcrun_runner_req"})
-        self.assertEqual(r.get_json(), {"success": True, "users": ["bob"]})
+        r = self.client.post("/filter", json={"filter_key": "mcrun_runner"})
+        self.assertEqual(r.get_json(), [])
+
+    def test_filter_missing_key(self):
+        r = self.client.post("/filter", json={})
+        self.assertEqual(r.status_code, 400)
+
+    def test_user_public_profile(self):
+        self.client.post("/reg", json={"username": "bob", "password": "pw"})
+        r = self.client.post("/user", json={"username": "bob"})
+        self.assertEqual(r.status_code, 200)
+        data = r.get_json()
+        self.assertEqual(data["username"], "bob")
+        self.assertIn("playername", data)
+        self.assertNotIn("password", data)
+        # 不存在的用户 → 404；缺参数 → 400
+        self.assertEqual(self.client.post("/user", json={"username": "nobody"}).status_code, 404)
+        self.assertEqual(self.client.post("/user", json={}).status_code, 400)
 
     def test_userdata_set_get_and_persist(self):
         # 设置 → 读取 → 落盘后重新加载一致
@@ -253,7 +244,7 @@ class TestServer(unittest.TestCase):
         self.assertEqual(r.status_code, 404)
 
     def test_missing_body_bad_request(self):
-        for path in ("/login", "/reg", "/whoami"):
+        for path in ("/login", "/reg", "/whoami", "/user", "/filter"):
             r = self.client.post(path, json={})
             self.assertEqual(r.status_code, 400, path)
 

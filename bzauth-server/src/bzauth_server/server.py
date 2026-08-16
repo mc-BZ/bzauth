@@ -74,6 +74,17 @@ class Server:
                 out.append(user.username)
         return out
 
+    def api_user(self):
+        """通用接口：按用户名查公开资料（不含密码哈希），供其他应用展示/私信用"""
+        data = flask.request.json or {}
+        username = data.get("username")
+        if not username:
+            return flask.Response("Bad request", status=400)
+        user = self.auth.passwd.get(username)
+        if not user:
+            return flask.Response(status=404)
+        return user.to_public_json()
+
     def api_set_userdata(self):
         data = flask.request.json or {}
         username = data.get("username")
@@ -145,3 +156,4 @@ class Server:
         self.app.route("/set_userdata", methods=["POST"])(self.api_set_userdata)
         self.app.route("/get_userdata", methods=["POST"])(self.api_get_userdata)
         self.app.route("/filter", methods=["POST"])(self.api_filter)
+        self.app.route("/user", methods=["POST"])(self.api_user)
